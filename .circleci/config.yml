@@ -1,0 +1,40 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@2.0
+  aws-assume-role: airswap/assume-role@0.2.0
+
+jobs:
+  run_billing_tool:
+    docker:
+      - image: cimg/python:3.10.0
+    steps:
+      - checkout
+      - aws-cli/setup
+      - aws-assume-role/assume-role
+      - run: python --version
+      - run:
+          name: Run AWS Billing
+          command: |
+            python -m pip install --upgrade pip
+            pipenv install --system --deploy
+            python ./handler.py
+
+workflows:
+  main-workflow:
+    jobs:
+      - run_billing_tool:
+          context:
+            - aws
+  weekly:
+    triggers:
+      - schedule: # Triggered workflow runs once a week
+          cron: "0 10 * * 5"
+          filters:
+            branches:
+              only:
+                - master
+    jobs:
+      - run_billing_tool:
+          context:
+            - aws

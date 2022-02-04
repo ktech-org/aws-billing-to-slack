@@ -5,9 +5,9 @@ import os
 import requests
 import sys
 
-n_days = 7
+n_days = 30
 yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
-week_ago = yesterday - datetime.timedelta(days=n_days)
+month_ago = yesterday - datetime.timedelta(days=n_days)
 
 # It seems that the sparkline symbols don't line up (probalby based on font?) so put them last
 # Also, leaving out the full block because Slack doesn't like it: '█'
@@ -35,18 +35,18 @@ def delta(costs):
         result = 0
     return result
 
-def report_cost(event, context, result: dict = None, yesterday: str = None, new_method=True):
+def report_cost(result: dict = None, yesterday: str = None, new_method=True):
 
     if yesterday is None:
         yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
     else:
         yesterday = datetime.datetime.strptime(yesterday, '%Y-%m-%d')
 
-    week_ago = yesterday - datetime.timedelta(days=n_days)
+    month_ago = yesterday - datetime.timedelta(days=n_days)
     # Generate list of dates, so that even if our data is sparse,
     # we have the correct length lists of costs (len is n_days)
     list_of_dates = [
-        (week_ago + datetime.timedelta(days=x)).strftime('%Y-%m-%d')
+        (month_ago + datetime.timedelta(days=x)).strftime('%Y-%m-%d')
         for x in range(n_days)
     ]
     print(list_of_dates)
@@ -70,7 +70,7 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
 
     query = {
         "TimePeriod": {
-            "Start": week_ago.strftime('%Y-%m-%d'),
+            "Start": month_ago.strftime('%Y-%m-%d'),
             "End": yesterday.strftime('%Y-%m-%d'),
         },
         "Granularity": "DAILY",
@@ -92,6 +92,8 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
             {
                 "Type": "DIMENSION",
                 "Key": "SERVICE",
+                "Type": "TAG",
+                "Key": "Department",
             },
         ],
     }
@@ -99,6 +101,8 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
     # Only run the query when on lambda, not when testing locally with example json
     if result is None:
         result = client.get_cost_and_usage(**query)
+
+    print(result)
 
     cost_per_day_by_service = defaultdict(list)
 
@@ -121,7 +125,9 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
                 key = group['Keys'][0]
                 cost = float(group['Metrics']['UnblendedCost']['Amount'])
                 cost_per_day_dict[key][start_date] = cost
+                # Service = unblended cost
 
+        # for service name in dict
         for key in cost_per_day_dict.keys():
             for start_date in list_of_dates:
                 cost = cost_per_day_dict[key].get(start_date, 0.0) # fallback for sparse data
@@ -131,9 +137,10 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
     most_expensive_yesterday = sorted(cost_per_day_by_service.items(), key=lambda i: i[1][-1], reverse=True)
 
     service_names = [k for k,_ in most_expensive_yesterday[:5]]
+    print(service_names)
     longest_name_len = len(max(service_names, key = len))
 
-    buffer = f"{'Service':{longest_name_len}} ${'Yday':8} {'∆%':>5} {'Last 7d':7}\n"
+    buffer = f"{'Service':{longest_name_len}} {'Yesterday':11} {'∆%':>5} {'Last 30d':30}\n"
 
     for service_name, costs in most_expensive_yesterday[:5]:
         buffer += f"{service_name:{longest_name_len}} ${costs[-1]:8,.2f} {delta(costs):4.0f}% {sparkline(costs):7}\n"
@@ -204,21 +211,22 @@ def report_cost(event, context, result: dict = None, yesterday: str = None, new_
     return cost_per_day_by_service
 
 if __name__ == "__main__":
+    report_cost()
     # for running locally to test
-    import json
-    with open("example_boto3_result.json", "r") as f:
-        example_result = json.load(f)
-    with open("example_boto3_result2.json", "r") as f:
-        example_result2 = json.load(f)
+    # import json
+    # with open("example_boto3_result.json", "r") as f:
+    #     example_result = json.load(f)
+    # with open("example_boto3_result2.json", "r") as f:
+    #     example_result2 = json.load(f)
 
-    # New Method with 2 example jsons
-    cost_dict = report_cost(None, None, example_result, yesterday="2021-08-23", new_method=True)
-    assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "286.37", f'{cost_dict.get("total"):,.2f} != 286.37'    
-    cost_dict = report_cost(None, None, example_result2, yesterday="2021-08-29", new_method=True)
-    assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "21.45", f'{cost_dict.get("total"):,.2f} != 21.45'
+    # # New Method with 2 example jsons
+    # cost_dict = report_cost(None, None, example_result, yesterday="2021-08-23", new_method=True)
+    # assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "286.37", f'{cost_dict.get("total"):,.2f} != 286.37'
+    # cost_dict = report_cost(None, None, example_result2, yesterday="2021-08-29", new_method=True)
+    # assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "21.45", f'{cost_dict.get("total"):,.2f} != 21.45'
 
-    # Old Method with same jsons (will fail)
-    cost_dict = report_cost(None, None, example_result, yesterday="2021-08-23", new_method=False)
-    assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "286.37", f'{cost_dict.get("total"):,.2f} != 286.37' 
-    cost_dict = report_cost(None, None, example_result2, yesterday="2021-08-29", new_method=False)
-    assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "21.45", f'{cost_dict.get("total"):,.2f} != 21.45'
+    # # Old Method with same jsons (will fail)
+    # cost_dict = report_cost(None, None, example_result, yesterday="2021-08-23", new_method=False)
+    # assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "286.37", f'{cost_dict.get("total"):,.2f} != 286.37'
+    # cost_dict = report_cost(None, None, example_result2, yesterday="2021-08-29", new_method=False)
+    # assert "{0:.2f}".format(cost_dict.get("total", 0.0)) == "21.45", f'{cost_dict.get("total"):,.2f} != 21.45'
