@@ -3,13 +3,15 @@ import boto3
 import datetime
 import os
 import requests
-import sys
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 n_days = 30
+top_n = 15
 yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
 month_ago = yesterday - datetime.timedelta(days=n_days)
 
-# It seems that the sparkline symbols don't line up (probalby based on font?) so put them last
+# It seems that the sparkline symbols don't line up (probably based on font?) so put them last
 # Also, leaving out the full block because Slack doesn't like it: '█'
 sparks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇']
 
@@ -92,8 +94,8 @@ def report_cost(result: dict = None, yesterday: str = None, new_method=True):
             {
                 "Type": "DIMENSION",
                 "Key": "SERVICE",
-                "Type": "TAG",
-                "Key": "Department",
+                "Type": "COST_CATEGORY",
+                "Key": "BackstageOwner",
             },
         ],
     }
@@ -136,17 +138,17 @@ def report_cost(result: dict = None, yesterday: str = None, new_method=True):
     # Sort the map by yesterday's cost
     most_expensive_yesterday = sorted(cost_per_day_by_service.items(), key=lambda i: i[1][-1], reverse=True)
 
-    service_names = [k for k,_ in most_expensive_yesterday[:5]]
+    service_names = [k for k,_ in most_expensive_yesterday[:top_n]]
     print(service_names)
     longest_name_len = len(max(service_names, key = len))
 
     buffer = f"{'Service':{longest_name_len}} {'Yesterday':11} {'∆%':>5} {'Last 30d':30}\n"
 
-    for service_name, costs in most_expensive_yesterday[:5]:
+    for service_name, costs in most_expensive_yesterday[:top_n]:
         buffer += f"{service_name:{longest_name_len}} ${costs[-1]:8,.2f} {delta(costs):4.0f}% {sparkline(costs):7}\n"
 
     other_costs = [0.0] * n_days
-    for service_name, costs in most_expensive_yesterday[5:]:
+    for service_name, costs in most_expensive_yesterday[top_n:]:
         for i, cost in enumerate(costs):
             other_costs[i] += cost
 
@@ -188,21 +190,24 @@ def report_cost(result: dict = None, yesterday: str = None, new_method=True):
         summary = (f"{emoji} Yesterday's cost for {account_name} ${total_costs[-1]:,.2f} "
                    f"is {relative_to_budget:.2f}% of credit budget "
                    f"${allowed_credits_per_day:,.2f} for the day."
-                  )
+                   )
     else:
         summary = f"Yesterday's cost for account {account_name} was ${total_costs[-1]:,.2f}"
 
-    hook_url = os.environ.get('SLACK_WEBHOOK_URL')
-    if hook_url:
-        resp = requests.post(
-            hook_url,
-            json={
-                "text": summary + "\n\n```\n" + buffer + "\n```",
-            }
-        )
+    slack_token = os.environ.get('SLACK_ACCESS_TOKEN')
+    slack_channel = os.environ.get('SLACK_DEFAULT_CHANNEL')
+    if slack_token:
+        client = WebClient(token=slack_token)
 
-        if resp.status_code != 200:
-            print("HTTP %s: %s" % (resp.status_code, resp.text))
+        try:
+            response = client.chat_postMessage(
+                channel=slack_channel,
+                text= summary + "\n\n```\n" + buffer + "\n```",
+            )
+        except SlackApiError as e:
+            # You will get a SlackApiError if "ok" is False
+            print(f'Error sending message to slack: {e.response["error"]}')
+
     else:
         print(summary)
         print(buffer)
