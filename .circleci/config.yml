@@ -7,7 +7,11 @@ orbs:
 jobs:
   run_billing_tool:
     docker:
-      - image: cimg/python:3.10.0
+      - image: cimg/python:3.11.1
+    parameters:
+      slack_channel:
+        type: string
+        default: tech-devops-alerts-test
     steps:
       - checkout
       - aws-cli/setup
@@ -19,6 +23,8 @@ jobs:
             python -m pip install --upgrade pip
             pipenv install --system --deploy
             python ./handler.py
+    environment:
+      SLACK_CHANNEL: <<parameters.slack_channel>>
 
 workflows:
   main-workflow:
@@ -26,6 +32,7 @@ workflows:
       - run_billing_tool:
           context:
             - aws
+            - slack
   weekly:
     triggers:
       - schedule: # Triggered workflow runs once a week
@@ -36,5 +43,7 @@ workflows:
                 - master
     jobs:
       - run_billing_tool:
+          slack_channel: alerts-bandstand-test
           context:
             - aws
+            - slack
