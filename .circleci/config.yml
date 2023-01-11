@@ -7,7 +7,7 @@ orbs:
 jobs:
   run_billing_tool:
     docker:
-      - image: cimg/python:3.10.0
+      - image: cimg/python:3.11.1
     parameters:
       slack_channel:
         type: string
