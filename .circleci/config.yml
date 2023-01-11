@@ -14,8 +14,8 @@ jobs:
         default: tech-devops-alerts-test
     steps:
       - checkout
-      - aws-cli/setup
-      - aws-assume-role/assume-role
+#      - aws-cli/setup
+#      - aws-assume-role/assume-role
       - run: python --version
       - run:
           name: Run AWS Billing
