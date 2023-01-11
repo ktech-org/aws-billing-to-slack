@@ -2,7 +2,6 @@ from collections import defaultdict
 import boto3
 import datetime
 import os
-import requests
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
